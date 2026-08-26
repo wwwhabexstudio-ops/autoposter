@@ -10,13 +10,14 @@ from video_lab import SUPPORTED_ASPECT_RATIOS
 from youtube_adapter import authorization_url, finish_authorization, credentials, upload_video
 from youtube_analytics import channel_summary, analytics_report
 from tts_engine import generate_voiceover
+from video_factory import make_video
 
 BASE_DIR=Path(__file__).parent; VIDEO_DIR=BASE_DIR/"data"/"videos"; RENDER_DIR=BASE_DIR/"data"/"renders"; VIDEO_DIR.mkdir(parents=True,exist_ok=True); RENDER_DIR.mkdir(parents=True,exist_ok=True)
 PLATFORMS=["youtube","instagram","facebook","tiktok","linkedin"]
 st.set_page_config(page_title="AutoPoster",page_icon="📤",layout="wide")
-st.title("📤 AutoPoster"); st.caption("Free multi-platform content, video planning and publishing automation")
+st.title("📤 AutoPoster"); st.caption("Free/local-first content creation, rendering, analytics and publishing automation")
 
-# OAuth callback handler. Set AUTPOSTER_REDIRECT_URI to the exact HTTPS callback URL.
+# OAuth callback. AUTPOSTER_REDIRECT_URI must exactly match the Google OAuth client.
 params=st.query_params
 if params.get("code") and params.get("state"):
     try:
@@ -27,8 +28,8 @@ if params.get("code") and params.get("state"):
         st.session_state["youtube_connected"]=True; st.query_params.clear(); st.success("YouTube connected successfully."); st.rerun()
     except Exception as e: st.error(f"YouTube authorization failed: {e}")
 
-posts=list_posts(); video_count=len(list(VIDEO_DIR.glob("*"))); queued=len([p for p in posts if p["status"] in ("queued","publishing")]); published=len([p for p in posts if p["status"]=="published"]); failed=len([p for p in posts if p["status"]=="failed"])
-c1,c2,c3,c4=st.columns(4); c1.metric("Videos",video_count); c2.metric("Queued",queued); c3.metric("Published",published); c4.metric("Failed",failed)
+posts=list_posts(); video_count=len(list(VIDEO_DIR.glob("*.mp4"))); queued=len([p for p in posts if p["status"] in ("queued","publishing")]); published=len([p for p in posts if p["status"]=="published"]); failed=len([p for p in posts if p["status"]=="failed"])
+c1,c2,c3,c4=st.columns(4); c1.metric("Rendered videos",video_count); c2.metric("Queued",queued); c3.metric("Published",published); c4.metric("Failed",failed)
 
 st.divider(); st.subheader("🎬 Video Lab")
 with st.form("video_lab"):
@@ -37,7 +38,7 @@ with st.form("video_lab"):
     aspect_ratio=st.selectbox("Aspect ratio",list(SUPPORTED_ASPECT_RATIOS.keys()),index=0)
     default_duration=45 if video_type=="Short-form" else 600
     duration=st.number_input("Target duration (seconds)",min_value=10,max_value=7200,value=default_duration,step=10)
-    script=st.text_area("Script / narration",placeholder="Write or paste narration. The automatic AI writer can be connected to a local LLM later.")
+    script=st.text_area("Script / narration",placeholder="Write or paste narration. An AI writer can be connected to a local LLM later.")
     title=st.text_input("Working title",value=topic)
     caption=st.text_area("Caption / description")
     gen_platforms=st.multiselect("Target platforms",PLATFORMS,default=["youtube"])
@@ -47,8 +48,23 @@ if generate:
     else:
         project=create_project(topic,script,video_type.lower(),int(duration),title,caption=caption,platforms=gen_platforms); project.video_plan.aspect_ratio=aspect_ratio; project.video_plan.width,project.video_plan.height=SUPPORTED_ASPECT_RATIOS[aspect_ratio]; saved=project.save(); st.session_state["last_project"]=project; st.success("Video project created."); st.json({"project_file":saved,"format":video_type,"aspect_ratio":aspect_ratio,"duration_seconds":int(duration),"scenes":len(project.video_plan.scenes)})
 
+st.subheader("🎥 Generate finished MP4")
+st.caption("This free/local renderer turns narration into a real MP4. It uses a generated visual background unless you supply a visual asset. It does not claim to be a cinematic AI-video model.")
+render_script=st.text_area("Narration for finished video",key="render_script",placeholder="Paste narration here")
+rc1,rc2=st.columns(2)
+with rc1: render_ratio=st.selectbox("Render ratio",list(SUPPORTED_ASPECT_RATIOS.keys()),key="render_ratio")
+with rc2: render_name=st.text_input("Output filename",value="autoposter_video.mp4")
+if st.button("🎬 Generate finished MP4"):
+    if not render_script.strip(): st.error("Enter narration first.")
+    else:
+        try:
+            audio=VIDEO_DIR/(Path(render_name).stem+"_voice.wav"); mp4=RENDER_DIR/render_name
+            generate_voiceover(render_script,str(audio)); w,h=SUPPORTED_ASPECT_RATIOS[render_ratio]; make_video(str(audio),str(mp4),w,h)
+            st.success(f"Video generated: {mp4.name}"); st.video(str(mp4)); st.download_button("Download MP4",mp4.read_bytes(),file_name=mp4.name,mime="video/mp4")
+        except Exception as e: st.error(f"Video generation failed: {e}")
+
 st.subheader("🎙️ Voiceover")
-voice_text=st.text_area("Voiceover text",value=script if 'script' in locals() else "",key="voice_text")
+voice_text=st.text_area("Voiceover text",key="voice_text",placeholder="Text to speak")
 if st.button("Generate local voiceover"):
     try:
         out=VIDEO_DIR/"voiceover.wav"; generate_voiceover(voice_text,str(out)); st.success(f"Voiceover created: {out.name}"); st.audio(str(out))
@@ -70,19 +86,16 @@ if upload:
             now=datetime.now(timezone.utc).isoformat(); add_post({"filename":upload.name,"title":ptitle,"description":description,"hashtags":hashtags,"platforms":platforms,"scheduled_at":scheduled_at,"status":"queued","created_at":now,"updated_at":now}); st.success("Added to queue."); st.rerun()
 
 st.divider(); st.subheader("🚀 YouTube")
-try:
-    connected=credentials() is not None
+try: connected=credentials() is not None
 except Exception: connected=False
 if connected:
     st.success("YouTube connected")
     try:
         ch=channel_summary(); st.write(f"**{ch['snippet']['title']}** — {ch.get('statistics',{}).get('subscriberCount','0')} subscribers")
-        if st.button("Refresh YouTube analytics"):
-            st.json(analytics_report(28))
+        if st.button("Refresh YouTube analytics"): st.json(analytics_report(28))
     except Exception as e: st.warning(str(e))
 else:
-    try:
-        redirect=os.getenv("AUTPOSTER_REDIRECT_URI") or st.secrets.get("AUTPOSTER_REDIRECT_URI")
+    try: redirect=os.getenv("AUTPOSTER_REDIRECT_URI") or st.secrets.get("AUTPOSTER_REDIRECT_URI")
     except Exception: redirect=os.getenv("AUTPOSTER_REDIRECT_URI")
     if redirect:
         if st.button("🔴 Connect YouTube"):
@@ -103,5 +116,5 @@ for post in posts:
         if post["status"] in ("queued","failed") and st.button("Retry / keep queued",key=f"retry_{post['id']}"): update_post(post["id"],status="queued",last_error=""); st.rerun()
 
 st.divider(); st.subheader("3. Platform status")
-for name,value in {"YouTube":"🟢 OAuth + upload adapter installed","Instagram":"🟡 Meta API required","Facebook":"🟡 Meta API required","TikTok":"🟡 TikTok app approval required","LinkedIn":"🟡 LinkedIn API access required"}.items(): st.write(f"**{name}:** {value}")
+for name,value in {"YouTube":"🟢 OAuth + upload + analytics adapter installed","Instagram":"🟡 Meta API credentials/permissions required","Facebook":"🟡 Meta API credentials/permissions required","TikTok":"🟡 TikTok app approval/credentials required","LinkedIn":"🟡 LinkedIn API access/credentials required"}.items(): st.write(f"**{name}:** {value}")
 st.caption("Official APIs only. Never put social passwords or API tokens in source code.")
