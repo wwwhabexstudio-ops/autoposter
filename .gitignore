@@ -3,6 +3,9 @@ __pycache__/
 .env
 .venv/
 .streamlit/secrets.toml
+client_secret.json
 data/videos/*
-data/queue.json
+data/*.db
+data/*.json
+data/youtube_token.json
 .DS_Store
