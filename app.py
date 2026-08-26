@@ -1,88 +1,111 @@
-import streamlit as st
+from __future__ import annotations
+
+from datetime import date, datetime, time, timezone
 from pathlib import Path
-from datetime import datetime
-import json
+
+import streamlit as st
+
+from database import add_post, list_posts, update_post
 
 BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "data"
-VIDEO_DIR = DATA_DIR / "videos"
-QUEUE_FILE = DATA_DIR / "queue.json"
-
+VIDEO_DIR = BASE_DIR / "data" / "videos"
 VIDEO_DIR.mkdir(parents=True, exist_ok=True)
-if not QUEUE_FILE.exists():
-    QUEUE_FILE.write_text("[]", encoding="utf-8")
 
-
-def load_queue():
-    try:
-        return json.loads(QUEUE_FILE.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, FileNotFoundError):
-        return []
-
-
-def save_queue(queue):
-    QUEUE_FILE.write_text(json.dumps(queue, indent=2), encoding="utf-8")
-
+PLATFORMS = ["youtube", "instagram", "facebook", "tiktok", "linkedin"]
 
 st.set_page_config(page_title="AutoPoster", page_icon="📤", layout="wide")
-
 st.title("📤 AutoPoster")
 st.caption("Free multi-platform video publishing automation")
 
-queue = load_queue()
-videos = sorted(VIDEO_DIR.glob("*"))
+posts = list_posts()
+video_count = len(list(VIDEO_DIR.glob("*")))
+queued = len([p for p in posts if p["status"] in ("queued", "publishing")])
+published = len([p for p in posts if p["status"] == "published"])
+failed = len([p for p in posts if p["status"] == "failed"])
 
-col1, col2, col3 = st.columns(3)
-col1.metric("Videos", len(videos))
-col2.metric("Queued", len([x for x in queue if x.get("status") == "queued"]))
-col3.metric("Published", len([x for x in queue if x.get("status") == "published"]))
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Videos", video_count)
+c2.metric("Queued", queued)
+c3.metric("Published", published)
+c4.metric("Failed", failed)
 
 st.divider()
-
-st.subheader("Add a video")
-upload = st.file_uploader("Upload MP4/MOV", type=["mp4", "mov", "m4v"])
+st.subheader("1. Add a video")
+upload = st.file_uploader("Upload MP4/MOV/M4V", type=["mp4", "mov", "m4v"])
 
 if upload:
     destination = VIDEO_DIR / upload.name
-    destination.write_bytes(upload.getbuffer())
-    st.success(f"Saved {upload.name}")
+    if not destination.exists():
+        destination.write_bytes(upload.getbuffer())
+        st.success(f"Saved {upload.name}")
+    else:
+        st.info("That filename already exists; using the existing file.")
 
-    if not any(item.get("filename") == upload.name for item in queue):
-        queue.append({
-            "filename": upload.name,
-            "title": Path(upload.name).stem,
-            "description": "",
-            "hashtags": "",
-            "platforms": ["youtube"],
-            "scheduled_at": None,
-            "status": "queued",
-            "created_at": datetime.utcnow().isoformat() + "Z",
-        })
-        save_queue(queue)
+    with st.form("new_post"):
+        title = st.text_input("Title", Path(upload.name).stem)
+        description = st.text_area("Description")
+        hashtags = st.text_input("Hashtags", placeholder="#money #business #youtube")
+        platforms = st.multiselect("Platforms", PLATFORMS, default=["youtube"])
+        schedule_mode = st.radio("When?", ["Schedule", "Queue without a time"], horizontal=True)
+        scheduled_at = None
+        if schedule_mode == "Schedule":
+            d = st.date_input("Date", value=date.today())
+            t = st.time_input("Time", value=time(20, 0))
+            scheduled_at = datetime.combine(d, t).replace(tzinfo=timezone.utc).isoformat()
+            st.caption("Times are stored as UTC. We will add a user timezone setting next.")
+        submitted = st.form_submit_button("Add to publishing queue")
+
+    if submitted:
+        if not platforms:
+            st.error("Choose at least one platform.")
+        else:
+            now = datetime.now(timezone.utc).isoformat()
+            add_post({
+                "filename": upload.name,
+                "title": title,
+                "description": description,
+                "hashtags": hashtags,
+                "platforms": platforms,
+                "scheduled_at": scheduled_at,
+                "status": "queued",
+                "created_at": now,
+                "updated_at": now,
+            })
+            st.success("Added to the queue.")
+            st.rerun()
 
 st.divider()
-st.subheader("Publishing queue")
+st.subheader("2. Publishing queue")
+posts = list_posts()
 
-if not queue:
-    st.info("No videos queued yet. Upload your first video above.")
+if not posts:
+    st.info("No posts yet. Upload your first video above.")
 else:
-    for index, item in enumerate(queue):
-        with st.expander(f"{item['filename']} — {item.get('status', 'queued')}"):
-            item["title"] = st.text_input("Title", item.get("title", ""), key=f"title_{index}")
-            item["description"] = st.text_area("Description", item.get("description", ""), key=f"desc_{index}")
-            item["hashtags"] = st.text_input("Hashtags", item.get("hashtags", ""), key=f"tags_{index}")
-            item["platforms"] = st.multiselect(
-                "Platforms",
-                ["youtube", "instagram", "facebook", "tiktok", "linkedin"],
-                default=item.get("platforms", ["youtube"]),
-                key=f"platforms_{index}",
-            )
-            if st.button("Save", key=f"save_{index}"):
-                save_queue(queue)
-                st.success("Saved")
+    for post in posts:
+        label = f"#{post['id']} • {post['filename']} • {post['status']}"
+        with st.expander(label):
+            st.write(f"**Platforms:** {post['platforms']}")
+            st.write(f"**Scheduled:** {post['scheduled_at'] or 'Not scheduled'}")
+            st.write(f"**Title:** {post['title']}")
+            if post.get("last_error"):
+                st.error(post["last_error"])
+            if post.get("platform_results") and post["platform_results"] != "{}":
+                st.code(post["platform_results"], language="json")
+            if post["status"] in ("queued", "failed"):
+                if st.button("Retry / keep queued", key=f"retry_{post['id']}"):
+                    update_post(post["id"], status="queued", last_error="")
+                    st.rerun()
 
 st.divider()
-st.subheader("Platform connections")
-st.info("API connections will be added next. We will use official platform APIs and never store your social passwords in this app.")
+st.subheader("3. Platform status")
+status = {
+    "YouTube": "🟢 Adapter installed — OAuth required",
+    "Instagram": "🟡 Adapter next — Meta API required",
+    "Facebook": "🟡 Adapter next — Meta API required",
+    "TikTok": "🟡 Adapter next — TikTok app approval required",
+    "LinkedIn": "🟡 Adapter next — LinkedIn API access required",
+}
+for name, value in status.items():
+    st.write(f"**{name}:** {value}")
 
-st.caption("AutoPoster V0.1 — built for a $0 workflow")
+st.caption("AutoPoster — official APIs only. Never put social passwords or API tokens in source code.")
