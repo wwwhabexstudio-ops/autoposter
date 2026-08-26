@@ -1,0 +1,10 @@
+{
+  "job_id": "example",
+  "prompt": "cinematic documentary shot of a person receiving a salary notification, realistic camera movement",
+  "negative_prompt": "text, watermark, distorted hands, duplicate people",
+  "width": 1280,
+  "height": 720,
+  "frames": 81,
+  "fps": 16,
+  "seed": 42
+}
