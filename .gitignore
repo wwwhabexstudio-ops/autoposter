@@ -8,4 +8,6 @@ data/videos/*
 data/*.db
 data/*.json
 data/youtube_token.json
+data/projects/*
+data/renders/*
 .DS_Store
