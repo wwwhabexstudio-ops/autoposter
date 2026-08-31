@@ -1,0 +1,7 @@
+torch
+transformers
+accelerate
+safetensors
+diffusers>=0.35.0
+gradio
+sentencepiece
