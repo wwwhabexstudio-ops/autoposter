@@ -1,0 +1,10 @@
+torch
+transformers
+accelerate
+diffusers>=0.35.0
+safetensors
+sentencepiece
+ftfy
+imageio
+imageio-ffmpeg
+huggingface_hub
