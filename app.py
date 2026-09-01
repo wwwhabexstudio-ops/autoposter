@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import date, datetime, time, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 import os, json
 import streamlit as st
@@ -56,11 +56,34 @@ if generate:
         generate_voiceover(script,str(audio)); w,h=SUPPORTED_ASPECT_RATIOS[ratio]; make_video(str(audio),str(base),w,h)
         final=base
         if logo:
-            lp=ASSET_DIR/"brand_logo"+Path(logo.name).suffix; lp.write_bytes(logo.getbuffer()); branded=RENDER_DIR/(base.stem+"_branded.mp4"); add_logo(str(base),str(lp),str(branded)); final=branded
+            lp=ASSET_DIR/("brand_logo"+Path(logo.name).suffix); lp.write_bytes(logo.getbuffer()); branded=RENDER_DIR/(base.stem+"_branded.mp4"); add_logo(str(base),str(lp),str(branded)); final=branded
         st.success(f"Finished MP4 created: {final.name}"); st.video(str(final)); st.download_button("⬇️ Download video",final.read_bytes(),file_name=final.name,mime="video/mp4")
         for p in platforms:
             m=generate_metadata(topic,script,p); st.write(f"**{p.title()}** — {m.title}"); st.caption(m.caption); st.code(" ".join(m.tags))
     except Exception as e: st.error(f"Generation failed: {e}")
+
+st.divider(); st.subheader("⚡ Free GPU Video Generation")
+st.caption("Optional: connect a Google Colab T4 running the AutoPoster Wan2.1 worker. This produces genuine moving video clips, not a zoom/pan over a still image.")
+try:
+    from gpu_client import health as gpu_health, generate_clip
+    gpu_url=os.getenv("GPU_WORKER_URL","")
+    if gpu_url:
+        if st.button("🔌 Check GPU worker"):
+            try:
+                info=gpu_health(); st.success(f"GPU online: {info.get('gpu') or 'unknown'} • {info.get('model','')}")
+            except Exception as e: st.error(f"GPU worker unavailable: {e}")
+        if st.button("🎞️ Generate 5-second AI scene"):
+            try:
+                prompt=f"{style.lower()} video, cinematic documentary visual about {topic}, natural continuous motion, clear subject action, detailed environment, smooth camera movement, consistent visual style, no text, no subtitles, no watermark"
+                w,h=SUPPORTED_ASPECT_RATIOS[ratio]
+                out=RENDER_DIR/(Path(topic.replace(' ','_')).stem+"_ai_scene.mp4")
+                with st.spinner("Generating a real AI video scene on the GPU worker…"):
+                    generate_clip(prompt,str(out),seconds=5,width=w,height=h,steps=20)
+                st.success("AI scene generated."); st.video(str(out)); st.download_button("⬇️ Download AI scene",out.read_bytes(),file_name=out.name,mime="video/mp4")
+            except Exception as e: st.error(f"GPU generation failed: {e}")
+    else:
+        st.info("Set GPU_WORKER_URL after starting the Colab worker to enable real AI video generation.")
+except Exception as e: st.warning(f"GPU worker client unavailable: {e}")
 
 st.divider(); st.subheader("📤 Upload Existing Video")
 upload=st.file_uploader("Upload MP4/MOV/M4V",type=["mp4","mov","m4v"])
