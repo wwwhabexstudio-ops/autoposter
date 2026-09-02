@@ -5,7 +5,7 @@ connects automatically to the official Wan2.1 Hugging Face Gradio Space.
 No static/image video fallback is used.
 """
 from __future__ import annotations
-import os, time, requests
+import os, sys, time, subprocess, requests
 from pathlib import Path
 
 REMOTE_SPACE = os.getenv("WAN_SPACE_ID", "Wan-AI/Wan2.1")
@@ -33,11 +33,18 @@ def _save_source(source, out: Path) -> str:
     return str(out)
 
 
-def _remote_clip(prompt: str, output: str, width: int, height: int, seconds: int) -> str:
+def _client():
     try:
         from gradio_client import Client
-    except Exception as exc:
-        raise RuntimeError("gradio-client is required for automatic Wan2.1 generation") from exc
+        return Client
+    except Exception:
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "gradio-client>=1.7,<2"], check=True)
+        from gradio_client import Client
+        return Client
+
+
+def _remote_clip(prompt: str, output: str, width: int, height: int, seconds: int) -> str:
+    Client = _client()
     client = Client(REMOTE_SPACE, token=os.getenv("HF_TOKEN") or None, verbose=False)
     resolution = f"{width}*{height}"
     result = client.predict(prompt, resolution, True, -1, api_name="/t2v_generation_async")
