@@ -45,7 +45,9 @@ def _client():
 
 def _remote_clip(prompt: str, output: str, width: int, height: int, seconds: int) -> str:
     Client = _client()
-    client = Client(REMOTE_SPACE, token=os.getenv("HF_TOKEN") or None, verbose=False)
+    # Do not pass token/verbose: the installed Gradio Client API in Codespaces
+    # does not accept those constructor keywords.
+    client = Client(REMOTE_SPACE)
     if width == height:
         resolution = "960*960"
     elif width > height:
@@ -57,6 +59,7 @@ def _remote_clip(prompt: str, output: str, width: int, height: int, seconds: int
     if not task_id:
         raise RuntimeError("Wan2.1 remote Space did not return a task id")
     deadline = time.time() + max(900, seconds * 180)
+    last_error = None
     while time.time() < deadline:
         try:
             status_result = client.predict(task_id, api_name="/get_result_with_task_id")
@@ -69,10 +72,11 @@ def _remote_clip(prompt: str, output: str, width: int, height: int, seconds: int
                 video = status_result.get("video_url") or status_result.get("video")
             if done and video:
                 return _save_source(video, Path(output))
-        except Exception:
-            pass
+        except Exception as exc:
+            last_error = exc
         time.sleep(5)
-    raise TimeoutError("Wan2.1 remote generation timed out")
+    detail = f": {last_error}" if last_error else ""
+    raise TimeoutError(f"Wan2.1 remote generation timed out{detail}")
 
 
 def remote_health() -> tuple[bool, str]:
