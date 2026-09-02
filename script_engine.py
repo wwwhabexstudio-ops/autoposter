@@ -62,20 +62,21 @@ def generate_script(topic: str, duration_seconds: int, style: str = "cinematic d
 
 def scene_plan(script: str, max_words: int = 10_000) -> list[dict]:
     words = script.split(); scenes=[]
-    # The renderer controls the exact 3-5 second timing; this function provides
-    # semantic blocks rather than creating long 30-70 word shots.
     for i in range(0, len(words), max_words):
         chunk = " ".join(words[i:i + max_words])
         scenes.append({"scene":len(scenes)+1, "narration":chunk,
-          "visual_prompt":f"cinematic realistic moving documentary shot illustrating: {chunk[:260]}"})
+          "visual_prompt":f"cinematic realistic moving documentary shot illustrating: {chunk[:260]}; no text, no subtitles, no typography, no title card, no infographic"})
     return scenes
 
 
 def generate_scene_plan_ai(script: str, style: str) -> list[dict]:
-    prompt=("Turn this narration into semantic cinematic scene ideas. Return JSON only. "
+    prompt=("Turn this narration into semantic cinematic scene ideas for a REAL AI text-to-video model. Return JSON only. "
             "Each object must contain scene, narration, visual_prompt, camera_motion, mood. "
-            "Do not put more than 2 sentences in a scene. Each visual must be concrete, different, "
-            f"and directly illustrate its narration. Style: {style}. Narration:\n{script}")
+            "Do not put more than 2 sentences in a scene. Each visual must be concrete, different, physically observable, "
+            "and directly illustrate its narration. Describe people, places, objects, actions, lighting, camera movement and composition. "
+            "CRITICAL: generate actual moving imagery prompts, NOT text cards. Never request or include readable text, captions, subtitles, "
+            "letters, numbers, logos, UI, charts, diagrams, title cards, quote cards, presentation slides, or typography in the visuals. "
+            f"Style: {style}. Narration:\n{script}")
     raw=_gemini(prompt)
     if raw:
         try:
