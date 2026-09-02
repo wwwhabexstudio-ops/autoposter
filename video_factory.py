@@ -29,8 +29,8 @@ def _prepare_scenes(raw:list[dict],seconds:float,topic:str)->list[dict]:
     narration=" ".join(str(x.get("narration") or "") for x in raw).strip() or topic
     chunks=_split_words(narration,count)
     raw_prompts=[str(x.get("visual_prompt") or "") for x in raw]
-    prompts=raw_prompts if len(raw_prompts)==len(chunks) and all(raw_prompts) else [f"cinematic realistic documentary moving shot, directly visualizing: {chunk}" for chunk in chunks]
-    return [{"scene":i+1,"narration":chunks[i],"visual_prompt":prompts[i],"duration_seconds":seconds/len(chunks)} for i in range(len(chunks))]
+    prompts=raw_prompts if len(raw_prompts)==len(chunks) and all(raw_prompts) else [f"cinematic realistic documentary moving shot, physically observable action directly visualizing: {chunk}; no text, no subtitles, no typography, no title card, no infographic, no presentation slide, no UI" for chunk in chunks]
+    return [{"scene":i+1,"narration":chunks[i],"visual_prompt":prompts[i] + "; real moving video, natural motion, cinematic camera movement, visually distinct from other scenes, no readable text" ,"duration_seconds":seconds/len(chunks)} for i in range(len(chunks))]
 
 
 def _normalize(source:Path,out:Path,width:int,height:int,seconds:float)->None:
@@ -49,8 +49,7 @@ def _concat(clips:list[Path],out:Path)->None:
 def make_video(audio:str,output:str,width:int,height:int,duration:float|None=None,image:str|None=None,scenes:list[dict]|None=None,topic:str="AutoPoster")->str:
     if not shutil.which("ffmpeg"): raise RuntimeError("FFmpeg is not installed")
     if not Path(audio).exists(): raise RuntimeError(f"Narration audio not found: {audio}")
-    # Wan2.1 can now be reached either through the local CUDA worker or the
-    # automatic official Hugging Face Space adapter in motion_worker.py.
+    # Wan2.1 is mandatory. There is intentionally no static/image/text-card fallback.
     out=Path(output); out.parent.mkdir(parents=True,exist_ok=True)
     seconds=float(duration or _probe(audio)); selected=_prepare_scenes(scenes or [],seconds,topic)
     work=out.parent/f".{out.stem}_wan_scenes"; work.mkdir(parents=True,exist_ok=True); clips=[]
