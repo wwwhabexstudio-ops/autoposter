@@ -30,6 +30,7 @@ def main(request_file: str):
     try:
         topic=str(req["topic"]); duration=int(req["duration"]); ratio=str(req["ratio"]); style=str(req["style"])
         script_mode=str(req["script_mode"]); script_input=str(req.get("script_input", ""))
+        visual_mode=str(req.get("visual_mode", "text_to_video")); image_path=str(req.get("image_path", ""))
         job_id=str(req["job_id"])
 
         write_status(status_path,status="running",stage="script",message="Preparing narration script…",job_id=job_id)
@@ -55,12 +56,18 @@ def main(request_file: str):
         else: w,h=1280,720
         render_seconds=min(audio_seconds,target_seconds)
         scene_count=max(1,round(render_seconds/4))
-        write_status(status_path,status="running",stage="video",message=f"Generating {scene_count} REAL Wan2.1 moving scenes…",script=script,job_id=job_id,video=str(video),scene_count=scene_count)
-        make_video(str(audio),str(video),w,h,duration=render_seconds,scenes=scenes,topic=topic)
+        if visual_mode=="image_animation":
+            if not image_path or not Path(image_path).exists():
+                raise RuntimeError("Image animation mode requires a valid uploaded image")
+            video_message=f"Animating your image across {scene_count} REAL Wan2.1 I2V scenes…"
+        else:
+            video_message=f"Generating {scene_count} REAL Wan2.1 moving scenes…"
+        write_status(status_path,status="running",stage="video",message=video_message,script=script,job_id=job_id,video=str(video),scene_count=scene_count,visual_mode=visual_mode)
+        make_video(str(audio),str(video),w,h,duration=render_seconds,scenes=scenes,topic=topic,image=image_path or None,visual_mode=visual_mode)
 
         if not video.exists() or video.stat().st_size<=10000:
             raise RuntimeError("Wan2.1 render finished without producing a valid MP4")
-        write_status(status_path,status="completed",stage="done",message="Video generation complete.",script=script,job_id=job_id,video=str(video),scene_count=scene_count,duration=render_seconds)
+        write_status(status_path,status="completed",stage="done",message="Video generation complete.",script=script,job_id=job_id,video=str(video),scene_count=scene_count,duration=render_seconds,visual_mode=visual_mode)
     except Exception as exc:
         write_status(status_path,status="failed",stage="error",message=str(exc),error=repr(exc),job_id=req.get("job_id"))
         raise
