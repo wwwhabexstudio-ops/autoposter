@@ -24,13 +24,22 @@ def _split_words(text:str,count:int)->list[str]:
     return [x for x in result if x]
 
 
+def _visual_prompt(prompt:str,narration:str)->str:
+    base=str(prompt or "").strip() or f"cinematic documentary scene showing {narration}"
+    return (f"REAL MOVING VIDEO. {base}. Show concrete physical action, people, environments, objects, natural movement "
+            "and cinematic camera motion. Create a rich cinematic shot, not a presentation. ABSOLUTELY NO readable text, "
+            "words, letters, numbers, subtitles, captions, logos, watermarks, UI, charts, infographics, title cards, quote cards, "
+            "presentation slides, text overlays or typography anywhere in the frame. Do not use a flat colored background with "
+            "animated circles. Do not make a text-card video. The narration is audio only; the image must communicate visually.")
+
+
 def _prepare_scenes(raw:list[dict],seconds:float,topic:str)->list[dict]:
     count=max(1,round(seconds/4))
     narration=" ".join(str(x.get("narration") or "") for x in raw).strip() or topic
     chunks=_split_words(narration,count)
     raw_prompts=[str(x.get("visual_prompt") or "") for x in raw]
-    prompts=raw_prompts if len(raw_prompts)==len(chunks) and all(raw_prompts) else [f"cinematic realistic documentary moving shot, physically observable action directly visualizing: {chunk}; no text, no subtitles, no typography, no title card, no infographic, no presentation slide, no UI" for chunk in chunks]
-    return [{"scene":i+1,"narration":chunks[i],"visual_prompt":prompts[i] + "; real moving video, natural motion, cinematic camera movement, visually distinct from other scenes, no readable text" ,"duration_seconds":seconds/len(chunks)} for i in range(len(chunks))]
+    prompts=raw_prompts if len(raw_prompts)==len(chunks) and all(raw_prompts) else [f"cinematic realistic documentary moving shot showing the idea: {chunk}" for chunk in chunks]
+    return [{"scene":i+1,"narration":chunks[i],"visual_prompt":_visual_prompt(prompts[i],chunks[i]),"duration_seconds":seconds/len(chunks)} for i in range(len(chunks))]
 
 
 def _normalize(source:Path,out:Path,width:int,height:int,seconds:float)->None:
