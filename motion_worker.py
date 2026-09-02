@@ -12,7 +12,32 @@ REMOTE_SPACE = os.getenv("WAN_SPACE_ID", "Wan-AI/Wan2.1")
 REMOTE_BASE = "https://wan-ai-wan2-1.hf.space"
 
 
+def _extract_video_source(value):
+    """Find a usable video URL/path inside Gradio's nested return objects."""
+    if value is None:
+        return None
+    if isinstance(value, (str, Path)):
+        text = str(value)
+        if text.startswith(("http://", "https://", "/", "file://")) or Path(text).exists():
+            return text
+        return None
+    if isinstance(value, dict):
+        for key in ("value", "video", "path", "file", "url", "name", "data"):
+            if key in value:
+                found = _extract_video_source(value[key])
+                if found:
+                    return found
+        return None
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            found = _extract_video_source(item)
+            if found:
+                return found
+    return None
+
+
 def _save_source(source, out: Path) -> str:
+    source = _extract_video_source(source) or source
     if isinstance(source, dict):
         source = source.get("url") or source.get("path") or source.get("name")
     if isinstance(source, (list, tuple)) and source:
@@ -21,6 +46,8 @@ def _save_source(source, out: Path) -> str:
         raise RuntimeError("Wan2.1 returned no video")
     source = str(source)
     out.parent.mkdir(parents=True, exist_ok=True)
+    if source.startswith("file://"):
+        source = source[7:]
     if source.startswith("http://") or source.startswith("https://"):
         r = requests.get(source, timeout=900)
         r.raise_for_status()
@@ -43,6 +70,14 @@ def _client():
         return Client
 
 
+def _api_names(client) -> set[str]:
+    try:
+        info = client.view_api(return_format="dict")
+        return set(info.keys()) if isinstance(info, dict) else set()
+    except Exception:
+        return set()
+
+
 def _remote_task(client, task_api: str, args: list) -> str:
     result = client.predict(*args, api_name=task_api)
     task_id = result[0] if isinstance(result, (list, tuple)) else result
@@ -51,24 +86,39 @@ def _remote_task(client, task_api: str, args: list) -> str:
     return str(task_id)
 
 
-def _poll_remote(client, task_id: str, output: str, seconds: int) -> str:
-    deadline = time.time() + max(900, seconds * 180)
+def _poll_remote(client, task_id: str, output: str, seconds: int, task_type: str) -> str:
+    """Poll using an endpoint exposed by the current official Space."""
+    deadline = time.time() + max(720, seconds * 180)
     last_error = None
+    api_names = _api_names(client)
+    result_api = "/get_result_with_task_id" if "/get_result_with_task_id" in api_names else None
+    status_api = "/status_refresh" if "/status_refresh" in api_names else None
+    if not result_api and not status_api:
+        status_api = "/status_refresh"
+
     while time.time() < deadline:
         try:
-            status_result = client.predict(task_id, api_name="/get_result_with_task_id")
-            done = False; video = None
-            if isinstance(status_result, (list, tuple)):
-                done = bool(status_result[0]) if status_result else False
-                video = status_result[1] if len(status_result) > 1 else None
-            elif isinstance(status_result, dict):
-                done = bool(status_result.get("status"))
-                video = status_result.get("video_url") or status_result.get("video")
-            if done and video:
+            if result_api:
+                status_result = client.predict(task_id, api_name=result_api)
+            else:
+                # Official Wan2.1 status_refresh(task_id, task, status).
+                status_result = client.predict(task_id, task_type, False, api_name=status_api)
+
+            video = _extract_video_source(status_result)
+            if video:
                 return _save_source(video, Path(output))
+
+            if isinstance(status_result, (list, tuple)) and result_api:
+                if status_result and bool(status_result[0]) and len(status_result) > 1 and not status_result[1]:
+                    raise RuntimeError("Wan2.1 remote task reported failure")
         except Exception as exc:
             last_error = exc
+            if result_api and "Cannot find a function with api_name" in str(exc):
+                api_names = _api_names(client)
+                result_api = "/get_result_with_task_id" if "/get_result_with_task_id" in api_names else None
+                status_api = "/status_refresh" if "/status_refresh" in api_names else status_api
         time.sleep(5)
+
     detail = f": {last_error}" if last_error else ""
     raise TimeoutError(f"Wan2.1 remote generation timed out{detail}")
 
@@ -83,15 +133,14 @@ def _remote_clip(prompt: str, output: str, width: int, height: int, seconds: int
     else:
         resolution = "720*1280"
     task_id = _remote_task(client, "/t2v_generation_async", [prompt, resolution, True, -1])
-    return _poll_remote(client, task_id, output, seconds)
+    return _poll_remote(client, task_id, output, seconds, "t2v")
 
 
 def _remote_image_clip(image: str, prompt: str, output: str, seconds: int) -> str:
     Client = _client()
     client = Client(REMOTE_SPACE)
-    # The official Wan2.1 Space exposes I2V as prompt + uploaded image + watermark + seed.
     task_id = _remote_task(client, "/i2v_generation_async", [prompt, image, True, -1])
-    return _poll_remote(client, task_id, output, seconds)
+    return _poll_remote(client, task_id, output, seconds, "i2v")
 
 
 def remote_health() -> tuple[bool, str]:
@@ -131,11 +180,7 @@ def generate_motion_clip(prompt: str, output: str, width: int = 832, height: int
 
 
 def generate_image_motion_clip(image: str, prompt: str, output: str, width: int = 832, height: int = 480, seconds: int = 5) -> str:
-    """Animate a supplied still image with Wan2.1 I2V.
-
-    The image is the visual starting point; the prompt controls natural motion,
-    camera movement, and environmental animation. No static-image fallback is used.
-    """
+    """Animate a supplied still image with Wan2.1 I2V."""
     image_path = Path(str(image))
     if not image_path.exists():
         raise RuntimeError(f"Input image not found: {image}")
@@ -151,6 +196,5 @@ def generate_image_motion_clip(image: str, prompt: str, output: str, width: int 
             source = data.get("video_path") or data.get("url")
             if source:
                 return _save_source(source, Path(output))
-        # Do not silently turn image animation into a static render.
         raise RuntimeError(f"Local Wan2.1 I2V worker failed: {r.text[:500]}")
     return _remote_image_clip(str(image_path), prompt, output, seconds)
