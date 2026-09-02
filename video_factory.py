@@ -25,12 +25,23 @@ def _split_words(text:str,count:int)->list[str]:
 
 
 def _visual_prompt(prompt:str,narration:str)->str:
-    base=str(prompt or "").strip() or f"cinematic documentary scene showing {narration}"
-    return (f"REAL MOVING VIDEO. {base}. Show concrete physical action, people, environments, objects, natural movement "
-            "and cinematic camera motion. Create a rich cinematic shot, not a presentation. ABSOLUTELY NO readable text, "
-            "words, letters, numbers, subtitles, captions, logos, watermarks, UI, charts, infographics, title cards, quote cards, "
-            "presentation slides, text overlays or typography anywhere in the frame. Do not use a flat colored background with "
-            "animated circles. Do not make a text-card video. The narration is audio only; the image must communicate visually.")
+    base=str(prompt or "").strip()
+    if not base:
+        base=f"cinematic live-action documentary footage showing a concrete scene that visually represents: {narration}"
+    return (
+        "CREATE REAL MOVING VIDEO FOOTAGE, NOT A GRAPHIC. "
+        "Photorealistic cinematic live-action documentary footage. "
+        f"{base}. The visual must directly and literally illustrate this narration: {narration}. "
+        "Show a real physical environment, recognizable people or real-world objects, and obvious continuous motion: "
+        "walking, working, driving, handling objects, natural body movement, environmental movement, or camera movement. "
+        "Use a dynamic cinematic shot with depth, realistic lighting, natural motion and a changing composition. "
+        "Start immediately with the actual scene; never show an intro card or visual explanation screen. "
+        "ABSOLUTELY NO text, words, letters, numbers, subtitles, captions, logos, watermarks, UI, charts, graphs, "
+        "infographics, diagrams, symbols, title cards, quote cards, presentation slides, social-media graphics, "
+        "animated typography, flat colored backgrounds, geometric circles, or blank graphic backgrounds. "
+        "Do not depict the narration as written language. The narration is audio only. "
+        "Every frame must be visual footage with physical subjects and motion."
+    )
 
 
 def _prepare_scenes(raw:list[dict],seconds:float,topic:str)->list[dict]:
@@ -38,7 +49,7 @@ def _prepare_scenes(raw:list[dict],seconds:float,topic:str)->list[dict]:
     narration=" ".join(str(x.get("narration") or "") for x in raw).strip() or topic
     chunks=_split_words(narration,count)
     raw_prompts=[str(x.get("visual_prompt") or "") for x in raw]
-    prompts=raw_prompts if len(raw_prompts)==len(chunks) and all(raw_prompts) else [f"cinematic realistic documentary moving shot showing the idea: {chunk}" for chunk in chunks]
+    prompts=raw_prompts if len(raw_prompts)==len(chunks) and all(raw_prompts) else [f"cinematic live-action documentary footage of a real-world scene physically illustrating: {chunk}" for chunk in chunks]
     return [{"scene":i+1,"narration":chunks[i],"visual_prompt":_visual_prompt(prompts[i],chunks[i]),"duration_seconds":seconds/len(chunks)} for i in range(len(chunks))]
 
 
