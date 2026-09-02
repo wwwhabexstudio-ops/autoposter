@@ -1,0 +1,5 @@
+[server]
+# Keep the browser connection alive during long Wan2.1 generations.
+websocketPingInterval = 20
+# Give a reconnecting browser enough time to recover the same Streamlit session.
+disconnectedSessionTTL = 3600
