@@ -2,7 +2,7 @@
 from __future__ import annotations
 import os, shutil, subprocess
 from pathlib import Path
-from motion_worker import generate_motion_clip
+from motion_worker import generate_motion_clip, generate_image_motion_clip
 
 
 def _run(cmd:list[str])->None:
@@ -53,6 +53,18 @@ def _prepare_scenes(raw:list[dict],seconds:float,topic:str)->list[dict]:
     return [{"scene":i+1,"narration":chunks[i],"visual_prompt":_visual_prompt(prompts[i],chunks[i]),"duration_seconds":seconds/len(chunks)} for i in range(len(chunks))]
 
 
+def _image_motion_prompt(prompt:str,narration:str)->str:
+    base=str(prompt or "").strip() or "animate the supplied image naturally"
+    return (
+        "ANIMATE THE SUPPLIED IMAGE INTO REAL MOVING VIDEO. Preserve the identity, composition, subject and key visual details of the input image. "
+        f"{base}. This animation must visually support this narration: {narration}. "
+        "Add believable physical motion such as natural subject movement, wind, water, smoke, traffic, fabric, hair, "
+        "or subtle environmental activity, plus a smooth cinematic camera move when appropriate. "
+        "Do not redesign the image into a graphic. Do not add text, captions, letters, numbers, logos, watermarks, UI, charts, "
+        "infographics, title cards, presentation slides, or animated typography."
+    )
+
+
 def _normalize(source:Path,out:Path,width:int,height:int,seconds:float)->None:
     ffmpeg=shutil.which("ffmpeg")
     vf=f"scale={width*12//10}:{height*12//10}:force_original_aspect_ratio=increase,crop={width}:{height},setsar=1,format=yuv420p"
@@ -66,17 +78,24 @@ def _concat(clips:list[Path],out:Path)->None:
     finally:txt.unlink(missing_ok=True)
 
 
-def make_video(audio:str,output:str,width:int,height:int,duration:float|None=None,image:str|None=None,scenes:list[dict]|None=None,topic:str="AutoPoster")->str:
+def make_video(audio:str,output:str,width:int,height:int,duration:float|None=None,image:str|None=None,scenes:list[dict]|None=None,topic:str="AutoPoster",visual_mode:str="text_to_video")->str:
     if not shutil.which("ffmpeg"): raise RuntimeError("FFmpeg is not installed")
     if not Path(audio).exists(): raise RuntimeError(f"Narration audio not found: {audio}")
-    # Wan2.1 is mandatory. There is intentionally no static/image/text-card fallback.
     out=Path(output); out.parent.mkdir(parents=True,exist_ok=True)
     seconds=float(duration or _probe(audio)); selected=_prepare_scenes(scenes or [],seconds,topic)
+    if visual_mode=="image_animation":
+        if not image: raise RuntimeError("Image animation mode requires an uploaded image")
+        image_path=Path(image)
+        if not image_path.exists(): raise RuntimeError(f"Animation image not found: {image}")
     work=out.parent/f".{out.stem}_wan_scenes"; work.mkdir(parents=True,exist_ok=True); clips=[]
     try:
         for i,scene in enumerate(selected,1):
             clip=work/f"scene_{i:02d}.mp4"; generated=work/f"wan_{i:02d}.mp4"
-            generate_motion_clip(str(scene["visual_prompt"]),str(generated),width=width,height=height,seconds=max(1,round(scene["duration_seconds"])))
+            if visual_mode=="image_animation":
+                prompt=_image_motion_prompt(str(scene["visual_prompt"]),str(scene["narration"]))
+                generate_image_motion_clip(str(image_path),prompt,str(generated),width=width,height=height,seconds=max(1,round(scene["duration_seconds"])))
+            else:
+                generate_motion_clip(str(scene["visual_prompt"]),str(generated),width=width,height=height,seconds=max(1,round(scene["duration_seconds"])))
             _normalize(generated,clip,width,height,float(scene["duration_seconds"])); clips.append(clip)
         silent=work/"silent.mp4"; _concat(clips,silent)
         ffmpeg=shutil.which("ffmpeg")
