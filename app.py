@@ -26,7 +26,7 @@ if wan_ok:
     else:
         st.success(f"🟢 Wan2.1 remote generation connected: {wan_source}. AutoPoster will generate real moving clips automatically — no worker URL required.")
 else:
-    st.warning(f"🟡 Wan2.1 connection is not ready yet ({wan_source}). The Generate button will enable automatically when the official Wan2.1 service is reachable.")
+    st.info(f"🔵 Wan2.1 remote mode is enabled. Connection check: {wan_source}. AutoPoster will try the official Wan2.1 service when you generate.")
 
 with st.form("create"):
     topic=st.text_input("Topic",placeholder="Why people are still poor")
@@ -35,7 +35,7 @@ with st.form("create"):
     style=st.selectbox("Style",["Cinematic documentary","Realistic","Dark documentary","Educational","3D","2D animated explainer"])
     script_mode=st.radio("Script",["Generate with AI","Paste script"],horizontal=True)
     script_input=st.text_area("Script",height=220)
-    generate=st.form_submit_button("🚀 Generate Wan2.1 Video",disabled=not wan_ok)
+    generate=st.form_submit_button("🚀 Generate Wan2.1 Video")
 
 if generate:
     if not topic.strip(): st.error("Enter a topic first.")
