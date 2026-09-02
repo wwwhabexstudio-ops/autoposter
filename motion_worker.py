@@ -2,7 +2,7 @@
 
 Uses a local CUDA worker when MOTION_WORKER_URL is configured. Otherwise it
 connects automatically to the official Wan2.1 Hugging Face Gradio Space.
-No static/image video fallback is used.
+Supports both text-to-video and image-to-video animation.
 """
 from __future__ import annotations
 import os, sys, time, subprocess, requests
@@ -43,21 +43,15 @@ def _client():
         return Client
 
 
-def _remote_clip(prompt: str, output: str, width: int, height: int, seconds: int) -> str:
-    Client = _client()
-    # Do not pass token/verbose: the installed Gradio Client API in Codespaces
-    # does not accept those constructor keywords.
-    client = Client(REMOTE_SPACE)
-    if width == height:
-        resolution = "960*960"
-    elif width > height:
-        resolution = "1280*720"
-    else:
-        resolution = "720*1280"
-    result = client.predict(prompt, resolution, True, -1, api_name="/t2v_generation_async")
+def _remote_task(client, task_api: str, args: list) -> str:
+    result = client.predict(*args, api_name=task_api)
     task_id = result[0] if isinstance(result, (list, tuple)) else result
     if not task_id:
         raise RuntimeError("Wan2.1 remote Space did not return a task id")
+    return str(task_id)
+
+
+def _poll_remote(client, task_id: str, output: str, seconds: int) -> str:
     deadline = time.time() + max(900, seconds * 180)
     last_error = None
     while time.time() < deadline:
@@ -77,6 +71,27 @@ def _remote_clip(prompt: str, output: str, width: int, height: int, seconds: int
         time.sleep(5)
     detail = f": {last_error}" if last_error else ""
     raise TimeoutError(f"Wan2.1 remote generation timed out{detail}")
+
+
+def _remote_clip(prompt: str, output: str, width: int, height: int, seconds: int) -> str:
+    Client = _client()
+    client = Client(REMOTE_SPACE)
+    if width == height:
+        resolution = "960*960"
+    elif width > height:
+        resolution = "1280*720"
+    else:
+        resolution = "720*1280"
+    task_id = _remote_task(client, "/t2v_generation_async", [prompt, resolution, True, -1])
+    return _poll_remote(client, task_id, output, seconds)
+
+
+def _remote_image_clip(image: str, prompt: str, output: str, seconds: int) -> str:
+    Client = _client()
+    client = Client(REMOTE_SPACE)
+    # The official Wan2.1 Space exposes I2V as prompt + uploaded image + watermark + seed.
+    task_id = _remote_task(client, "/i2v_generation_async", [prompt, image, True, -1])
+    return _poll_remote(client, task_id, output, seconds)
 
 
 def remote_health() -> tuple[bool, str]:
@@ -113,3 +128,29 @@ def generate_motion_clip(prompt: str, output: str, width: int = 832, height: int
             raise RuntimeError("Local Wan2.1 worker returned no video_path/url")
         return _save_source(source, Path(output))
     return _remote_clip(prompt, output, width, height, seconds)
+
+
+def generate_image_motion_clip(image: str, prompt: str, output: str, width: int = 832, height: int = 480, seconds: int = 5) -> str:
+    """Animate a supplied still image with Wan2.1 I2V.
+
+    The image is the visual starting point; the prompt controls natural motion,
+    camera movement, and environmental animation. No static-image fallback is used.
+    """
+    image_path = Path(str(image))
+    if not image_path.exists():
+        raise RuntimeError(f"Input image not found: {image}")
+    local = os.getenv("MOTION_WORKER_URL", "").strip()
+    if local:
+        r = requests.post(
+            local.rstrip("/") + "/generate-i2v",
+            json={"image_path":str(image_path),"prompt":prompt,"width":width,"height":height,"seconds":seconds},
+            timeout=900,
+        )
+        if r.ok:
+            data = r.json()
+            source = data.get("video_path") or data.get("url")
+            if source:
+                return _save_source(source, Path(output))
+        # Do not silently turn image animation into a static render.
+        raise RuntimeError(f"Local Wan2.1 I2V worker failed: {r.text[:500]}")
+    return _remote_image_clip(str(image_path), prompt, output, seconds)
