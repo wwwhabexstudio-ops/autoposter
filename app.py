@@ -84,7 +84,7 @@ if job and job.get("status")=="running":
         st.progress(0.75,text="Wan2.1 is rendering real moving scenes…")
     else:
         st.progress(0.15,text="Preparing your video…")
-    st.caption("You can refresh or reconnect to this page. The background generation will continue and AutoPoster will recover the result automatically.")
+    st.caption("The Wan2.1 worker is running outside Streamlit, so refreshing or reconnecting will not cancel generation.")
     time.sleep(2)
     st.rerun()
 
@@ -95,16 +95,16 @@ if job and job.get("status")=="completed" and job.get("video"):
         JOB_STATE.unlink(missing_ok=True)
         try: Path(job.get("request_file", "")).unlink(missing_ok=True)
         except Exception: pass
-        st.success(f"✅ Video ready — {job.get('scene_count','')} real Wan2.1 scenes generated.")
+        st.success(f"✅ Video ready — {job.get('scene_count','')} real Wan2.1 moving scenes generated.")
 
 with st.form("create"):
     topic=st.text_input("Topic",placeholder="Why people are still poor")
     duration=st.slider("Duration",15,120,30)
     ratio=st.selectbox("Aspect ratio",["9:16 Vertical","16:9 Landscape","1:1 Square"])
-    style=st.selectbox("Style",["Cinematic documentary","Realistic","Dark documentary","Educational","3D","2D animated explainer"])
+    style=st.selectbox("Visual style",["Cinematic documentary","Realistic","Dark documentary","Educational","3D"])
     script_mode=st.radio("Script",["Generate with AI","Paste script"],horizontal=True)
     script_input=st.text_area("Script",height=220)
-    generate=st.form_submit_button("🚀 Generate Wan2.1 Video")
+    generate=st.form_submit_button("🚀 Generate Real Wan2.1 Video")
 
 if generate:
     if not topic.strip():
@@ -122,6 +122,6 @@ current=Path(st.session_state.get("generated_video","")) if st.session_state.get
 if current and current.exists():
     st.session_state["generated_video"]=str(current)
     st.divider(); st.subheader("🎥 Current generated video")
-    st.caption("Your latest completed video is saved and remains available after refreshes, reconnects, and Streamlit reruns.")
+    st.caption("Latest video is saved and remains available after refreshes, reconnects, and Streamlit reruns.")
     st.video(str(current))
     st.download_button("⬇️ Download current video",current.read_bytes(),file_name=current.name,mime="video/mp4",key="download_current")
