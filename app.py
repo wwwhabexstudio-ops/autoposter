@@ -17,35 +17,28 @@ except Exception: pass
 
 st.set_page_config(page_title="AutoPoster",page_icon="📤",layout="wide")
 st.title("📤 AutoPoster")
-st.caption("AI video generation — Wan2.1 T2V + synchronized narration")
+st.caption("AI video generation — Wan2.1 T2V + I2V image animation + synchronized narration")
 
 
 def _read_job():
     try:
-        if JOB_STATE.exists():
-            return json.loads(JOB_STATE.read_text(encoding="utf-8"))
-    except Exception:
-        pass
+        if JOB_STATE.exists(): return json.loads(JOB_STATE.read_text(encoding="utf-8"))
+    except Exception: pass
     return None
 
 
 def _save_latest_video(path: Path, topic: str, duration: float) -> None:
     payload={"path":str(path),"topic":topic,"duration":duration,"completed_at":time.time()}
-    tmp=LATEST_STATE.with_suffix(".tmp")
-    tmp.write_text(json.dumps(payload),encoding="utf-8")
-    tmp.replace(LATEST_STATE)
+    tmp=LATEST_STATE.with_suffix(".tmp"); tmp.write_text(json.dumps(payload),encoding="utf-8"); tmp.replace(LATEST_STATE)
     st.session_state["generated_video"]=str(path)
 
 
 def _recover_latest_video() -> Path|None:
     try:
         if LATEST_STATE.exists():
-            data=json.loads(LATEST_STATE.read_text(encoding="utf-8"))
-            candidate=Path(str(data.get("path", "")))
-            if candidate.exists() and candidate.suffix.lower()==".mp4" and candidate.stat().st_size>10000:
-                return candidate
-    except Exception:
-        pass
+            data=json.loads(LATEST_STATE.read_text(encoding="utf-8")); candidate=Path(str(data.get("path", "")))
+            if candidate.exists() and candidate.suffix.lower()==".mp4" and candidate.stat().st_size>10000: return candidate
+    except Exception: pass
     renders=sorted(RENDER_DIR.glob("*.mp4"),key=lambda p:p.stat().st_mtime,reverse=True)
     for candidate in renders:
         try:
@@ -54,10 +47,10 @@ def _recover_latest_video() -> Path|None:
     return None
 
 
-def _launch_generation(topic, duration, ratio, style, script_mode, script_input):
+def _launch_generation(topic, duration, ratio, style, script_mode, script_input, visual_mode, image_path):
     job_id=uuid.uuid4().hex[:12]
     request_file=RENDER_DIR/f".generation_request_{job_id}.json"
-    payload={"job_id":job_id,"topic":topic,"duration":int(duration),"ratio":ratio,"style":style,"script_mode":script_mode,"script_input":script_input,"status_file":str(JOB_STATE)}
+    payload={"job_id":job_id,"topic":topic,"duration":int(duration),"ratio":ratio,"style":style,"script_mode":script_mode,"script_input":script_input,"visual_mode":visual_mode,"image_path":image_path or "","status_file":str(JOB_STATE),"request_file":str(request_file)}
     request_file.write_text(json.dumps(payload),encoding="utf-8")
     JOB_STATE.write_text(json.dumps({"status":"running","stage":"starting","message":"Starting background generation…","job_id":job_id}),encoding="utf-8")
     subprocess.Popen([__import__("sys").executable,str(BASE_DIR/"generation_worker.py"),str(request_file)],cwd=str(BASE_DIR),start_new_session=True)
@@ -70,23 +63,17 @@ if not st.session_state.get("generated_video"):
 
 wan_ok, wan_source=wan_available()
 if wan_ok:
-    if wan_source.startswith("local:"):
-        st.success(f"🟢 Wan2.1 connected: {wan_source[6:]}. Every scene will be generated as real moving video.")
-    else:
-        st.success(f"🟢 Wan2.1 remote generation connected: {wan_source}. AutoPoster will generate real moving clips automatically — no worker URL required.")
+    if wan_source.startswith("local:"): st.success(f"🟢 Wan2.1 connected: {wan_source[6:]}. Real moving video is enabled.")
+    else: st.success(f"🟢 Wan2.1 remote generation connected: {wan_source}. T2V and image animation are available.")
 else:
     st.info(f"🔵 Wan2.1 remote mode is enabled. Connection check: {wan_source}. AutoPoster will try the official Wan2.1 service when you generate.")
 
 job=_read_job()
 if job and job.get("status")=="running":
     st.warning(f"⏳ Generation is still running — {job.get('message','Please wait…')}")
-    if job.get("stage")=="video":
-        st.progress(0.75,text="Wan2.1 is rendering real moving scenes…")
-    else:
-        st.progress(0.15,text="Preparing your video…")
-    st.caption("The Wan2.1 worker is running outside Streamlit, so refreshing or reconnecting will not cancel generation.")
-    time.sleep(2)
-    st.rerun()
+    st.progress(0.75 if job.get("stage")=="video" else 0.15,text="Wan2.1 is rendering your video…" if job.get("stage")=="video" else "Preparing your video…")
+    st.caption("The generation worker runs outside Streamlit, so refreshing or reconnecting does not cancel it.")
+    time.sleep(2); st.rerun()
 
 if job and job.get("status")=="completed" and job.get("video"):
     completed=Path(job["video"])
@@ -95,28 +82,38 @@ if job and job.get("status")=="completed" and job.get("video"):
         JOB_STATE.unlink(missing_ok=True)
         try: Path(job.get("request_file", "")).unlink(missing_ok=True)
         except Exception: pass
-        st.success(f"✅ Video ready — {job.get('scene_count','')} real Wan2.1 moving scenes generated.")
+        mode_label="image animation" if job.get("visual_mode")=="image_animation" else "real Wan2.1 moving scenes"
+        st.success(f"✅ Video ready — {job.get('scene_count','')} {mode_label} generated.")
 
 with st.form("create"):
     topic=st.text_input("Topic",placeholder="Why people are still poor")
     duration=st.slider("Duration",15,120,30)
     ratio=st.selectbox("Aspect ratio",["9:16 Vertical","16:9 Landscape","1:1 Square"])
     style=st.selectbox("Visual style",["Cinematic documentary","Realistic","Dark documentary","Educational","3D"])
+    visual_mode=st.radio("Visual generation",["AI video (Wan2.1 T2V)","Animate uploaded image (Wan2.1 I2V)"],horizontal=True)
+    uploaded_image=None
+    if visual_mode.startswith("Animate"):
+        uploaded_image=st.file_uploader("Upload image to animate",type=["png","jpg","jpeg","webp"],help="Wan2.1 will use this image as the starting visual and generate real motion from it.")
     script_mode=st.radio("Script",["Generate with AI","Paste script"],horizontal=True)
     script_input=st.text_area("Script",height=220)
     generate=st.form_submit_button("🚀 Generate Real Wan2.1 Video")
 
 if generate:
-    if not topic.strip():
-        st.error("Enter a topic first.")
-    elif job and job.get("status")=="running":
-        st.warning("A video is already generating. Please wait for it to finish.")
+    if not topic.strip(): st.error("Enter a topic first.")
+    elif visual_mode.startswith("Animate") and uploaded_image is None: st.error("Upload an image first for image animation.")
+    elif job and job.get("status")=="running": st.warning("A video is already generating. Please wait for it to finish.")
     else:
         try:
-            _launch_generation(topic.strip(),int(duration),ratio,style,script_mode,script_input)
+            saved_image=""
+            if uploaded_image is not None:
+                suffix=Path(uploaded_image.name).suffix.lower() or ".png"
+                saved=VIDEO_DIR/f"animation_input_{uuid.uuid4().hex[:12]}{suffix}"
+                saved.write_bytes(uploaded_image.getbuffer())
+                saved_image=str(saved)
+            mode="image_animation" if visual_mode.startswith("Animate") else "text_to_video"
+            _launch_generation(topic.strip(),int(duration),ratio,style,script_mode,script_input,mode,saved_image)
             st.rerun()
-        except Exception as e:
-            st.error(f"Could not start generation: {e}")
+        except Exception as e: st.error(f"Could not start generation: {e}")
 
 current=Path(st.session_state.get("generated_video","")) if st.session_state.get("generated_video") else _recover_latest_video()
 if current and current.exists():
