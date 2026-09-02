@@ -1,11 +1,11 @@
 from __future__ import annotations
 import os, shutil, subprocess
 from pathlib import Path
-import requests
 import streamlit as st
 from script_engine import generate_script, generate_scene_plan_ai, fit_script_to_duration
 from tts_engine import generate_voiceover
 from video_factory import make_video
+from motion_worker import wan_available
 
 BASE_DIR=Path(__file__).parent
 VIDEO_DIR=BASE_DIR/"data"/"videos"; VIDEO_DIR.mkdir(parents=True,exist_ok=True)
@@ -19,21 +19,14 @@ st.set_page_config(page_title="AutoPoster",page_icon="📤",layout="wide")
 st.title("📤 AutoPoster")
 st.caption("AI video generation — Wan2.1 T2V + synchronized narration")
 
-worker=os.getenv("MOTION_WORKER_URL","").strip()
-wan_ok=False
-wan_model=""
-if worker:
-    try:
-        health=requests.get(worker.rstrip("/")+"/health",timeout=8).json()
-        wan_ok=bool(health.get("ok") and health.get("cuda") and "Wan2.1" in str(health.get("model","")))
-        wan_model=str(health.get("model",""))
-    except Exception: pass
+wan_ok, wan_source = wan_available()
 if wan_ok:
-    st.success(f"🟢 Wan2.1 connected: {wan_model}. Every scene will be generated as real moving video.")
-elif worker:
-    st.error("🔴 Wan2.1 worker URL is set, but the worker is not healthy/CUDA-ready. Generation is blocked until it is ready.")
+    if wan_source.startswith("local:"):
+        st.success(f"🟢 Wan2.1 connected: {wan_source[6:]}. Every scene will be generated as real moving video.")
+    else:
+        st.success(f"🟢 Wan2.1 remote generation connected: {wan_source}. AutoPoster will generate real moving clips automatically — no worker URL required.")
 else:
-    st.error("🔴 Wan2.1 is not connected. Generation is blocked — AutoPoster will NOT silently use static/image fallback video.")
+    st.warning(f"🟡 Wan2.1 connection is not ready yet ({wan_source}). The Generate button will enable automatically when the official Wan2.1 service is reachable.")
 
 with st.form("create"):
     topic=st.text_input("Topic",placeholder="Why people are still poor")
@@ -73,7 +66,6 @@ if generate:
             elif ratio.startswith("1:1"): w,h=1080,1080
             else: w,h=1280,720
 
-            # Use the selected duration as the authoritative video duration.
             render_seconds=min(audio_seconds,target_seconds)
             scene_count=max(1,round(render_seconds/4))
             st.subheader(f"🎬 Wan2.1 visual timeline — {scene_count} scenes")
