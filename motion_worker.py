@@ -46,7 +46,12 @@ def _client():
 def _remote_clip(prompt: str, output: str, width: int, height: int, seconds: int) -> str:
     Client = _client()
     client = Client(REMOTE_SPACE, token=os.getenv("HF_TOKEN") or None, verbose=False)
-    resolution = f"{width}*{height}"
+    if width == height:
+        resolution = "960*960"
+    elif width > height:
+        resolution = "1280*720"
+    else:
+        resolution = "720*1280"
     result = client.predict(prompt, resolution, True, -1, api_name="/t2v_generation_async")
     task_id = result[0] if isinstance(result, (list, tuple)) else result
     if not task_id:
@@ -96,7 +101,7 @@ def wan_available() -> tuple[bool, str]:
 def generate_motion_clip(prompt: str, output: str, width: int = 832, height: int = 480, seconds: int = 5) -> str:
     local = os.getenv("MOTION_WORKER_URL", "").strip()
     if local:
-        r = requests.post(local.rstrip("/") + "/generate", json={"prompt": prompt, "width": width, "height": height, "seconds": seconds}, timeout=900)
+        r = requests.post(local.rstrip("/") + "/generate", json={"prompt":prompt,"width":width,"height":height,"seconds":seconds},timeout=900)
         r.raise_for_status()
         data = r.json()
         source = data.get("video_path") or data.get("url")
